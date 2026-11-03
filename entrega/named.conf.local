@@ -1,0 +1,13 @@
+# named.conf.local
+#
+# Fernando Raya <fraya@ieszaidinvergeles.org>
+
+zone "olimpo.test" {
+     type master;
+     file "/var/lib/bind/olimpo.test.dns";
+};
+
+zone "57.168.192.in-addr.arpa" {
+     type master;
+     file "/var/lib/bind/192.168.57.dns";
+};
