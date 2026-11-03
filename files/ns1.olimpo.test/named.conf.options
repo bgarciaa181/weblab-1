@@ -1,0 +1,24 @@
+# named.conf.options
+#
+# Fernando Raya <fraya@ieszaidinvergeles.org>
+
+acl trusted {
+    127.0.0.0/8;
+    192.168.57.0/24;
+};
+
+options {
+        directory "/var/cache/bind";
+
+	allow-recursion {
+	  trusted;
+	};
+
+        forwarders {
+              1.1.1.1;
+        };
+
+        dnssec-validation yes;
+
+        listen-on-v6 { any; };
+};
