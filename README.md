@@ -1,95 +1,107 @@
 # HTTP Lab 1: Virtual Hosts
 
-**Autora:** Bea García Cogolludo
-**Curso:** 2.º ASIR — IES Zaidín Vergeles
+**Author:** Bea García Cogolludo
+**Course:** 2nd year ASIR — IES Zaidín Vergeles
 
-En esta práctica monto dos sitios web por nombre (*virtual hosts*) en un mismo servidor Apache: `apolo.olimpo.test` y `atenea.olimpo.test`. Para que los nombres funcionen uso un servidor DNS con BIND. Todo se levanta con Vagrant y VirtualBox.
+In this lab I set up several name-based virtual hosts on the same Apache web server. There are two websites, `apolo.olimpo.test` and `atenea.olimpo.test`, and both run on the same machine, `mercurio.olimpo.test`. Apache decides which site to show depending on the name you type in the browser.
+
+Everything runs with Vagrant and VirtualBox.
 
 ---
 
-## 1. Escenario
+## 1. Initial setup
 
-| Máquina | Nombre | IP | Función |
+### 1.1. Network
+
+| Machine | Name | IP | Role |
 |---|---|---|---|
-| `dns` | `ns1.olimpo.test` | 192.168.57.10 | Servidor DNS (BIND9) |
-| `web` | `mercurio.olimpo.test` | 192.168.57.11 | Servidor web (Apache) |
+| `dns` | `ns1.olimpo.test` | 192.168.57.10 | DNS server (BIND9) |
+| `web` | `mercurio.olimpo.test` | 192.168.57.11 | Web server (Apache) |
 
-- Red: `192.168.57.0/24`
-- Dominio: `olimpo.test`
-- El DNS tiene `dnssec-validation yes` y un forwarder a `1.1.1.1`.
-- Las dos máquinas usan `ns1` como DNS y tienen `search olimpo.test` en el `resolv.conf`.
+- Network: `192.168.57.0/24`
+- Gateway: `192.168.57.1`
+- Domain: `olimpo.test`
 
----
+### 1.2. DNS server
 
-## 2. Estructura del proyecto
+`ns1` is the authoritative master server for the `olimpo.test` zone and for the reverse zone of `192.168.57.0/24`.
+
+- It has `dnssec-validation yes`.
+- It uses `1.1.1.1` (Cloudflare) as a forwarder.
+- Both machines use `ns1` as their DNS server and have `search olimpo.test` in `/etc/resolv.conf`, so short names like `mercurio` also work.
+
+The DNS is essential: if it does not work, the web part cannot work either.
+
+### 1.3. Project structure
 
 ```
-vagrant.student/
+weblab-1/
 ├── Vagrantfile
 ├── apache2-provision.sh
 ├── dns-provision.sh
+├── entrega/
+├── img/
 └── files/
-    ├── apolo.olimpo.test/
-    │   ├── apolo.html
-    │   ├── apolo1.txt
-    │   ├── apolo2.txt
-    │   └── messages/
-    │       └── 404.html
-    ├── atenea.olimpo.test/
-    │   ├── atenea.html
-    │   ├── atenea1.txt
-    │   ├── atenea2.txt
-    │   └── messages/
-    │       └── 404.html
-    ├── mercurio.olimpo.test/
-    │   ├── apache2.conf
-    │   ├── apolo.olimpo.test.conf
-    │   ├── atenea.olimpo.test.conf
-    │   └── resolv.conf
-    └── ns1.olimpo.test/
-        ├── 192.168.57.dns
-        ├── named
-        ├── named.conf.local
-        ├── named.conf.options
-        ├── olimpo.test.dns
-        └── resolv.conf
+    ├── apolo.olimpo.test/        → document root of apolo
+    ├── atenea.olimpo.test/       → document root of atenea
+    ├── mercurio.olimpo.test/     → Apache config files
+    └── ns1.olimpo.test/          → DNS config files
 ```
 
-Las carpetas `files/apolo.olimpo.test` y `files/atenea.olimpo.test` se sincronizan con la máquina `web` en `/var/www/apolo.olimpo.test` y `/var/www/atenea.olimpo.test` (lo hace el `Vagrantfile`).
+The folders `files/apolo.olimpo.test` and `files/atenea.olimpo.test` are synced with the `web` machine at `/var/www/apolo.olimpo.test` and `/var/www/atenea.olimpo.test` (the `Vagrantfile` does this).
 
 ---
 
-## 3. Lo que he configurado
+## 2. apolo.olimpo.test
 
-### 3.1. DNS: alias de apolo y atenea
+### 2.1. DNS alias
 
-En `files/ns1.olimpo.test/olimpo.test.dns`, debajo del comentario `; Poner alias de apolo`, he añadido los dos alias. Los dos apuntan a `mercurio`, que es la máquina con Apache:
+`apolo.olimpo.test` must be an alias of `mercurio.olimpo.test`. I added a `CNAME` record in the zone file `files/ns1.olimpo.test/olimpo.test.dns`:
 
 ```
-; Poner alias de apolo
 apolo     IN    CNAME   mercurio
-atenea    IN    CNAME   mercurio
 ```
 
-![Alias en olimpo.test.dns](img/01-dns-alias.png)
+![Aliases in olimpo.test.dns](img/01-dns-alias.png)
 
-### 3.2. Páginas de error 404
+I checked it with `dig`:
 
-Cada sitio tiene su página de error dentro de una carpeta `messages`:
+```bash
+vagrant ssh dns -c "dig apolo.olimpo.test"
+```
 
-`files/apolo.olimpo.test/messages/404.html`
+```
+;; ANSWER SECTION:
+apolo.olimpo.test.     86400  IN  CNAME  mercurio.olimpo.test.
+mercurio.olimpo.test.  86400  IN  A      192.168.57.11
+```
+
+![dig apolo.olimpo.test](img/08-dig-apolo.png)
+
+### 2.2. Site files
+
+The document root of the site is `/var/www/apolo.olimpo.test`, with these files:
+
+```
+apolo.olimpo.test
+├── apolo1.txt
+├── apolo2.txt
+├── apolo.html
+└── messages
+    └── 404.html
+```
+
+### 2.3. Custom error pages
+
+**403 error:** when there is a 403 error, the server shows the message *You do not have permission to access apolo.olimpo.test*.
+
+**404 error:** when there is a 404 error, the server shows the page `404.html`, which is in the `messages` folder inside the document root. It says *Resource not found on apolo.olimpo.test*.
 
 ```html
 <h1>Resource not found on apolo.olimpo.test</h1>
 ```
 
-`files/atenea.olimpo.test/messages/404.html`
-
-```html
-<h1>Resource not found on atenea.olimpo.test</h1>
-```
-
-Las he creado así:
+I created the `messages` folders and the `404.html` pages of both sites like this:
 
 ```bash
 mkdir files/apolo.olimpo.test/messages
@@ -98,11 +110,22 @@ mkdir files/atenea.olimpo.test/messages
 echo "<h1>Resource not found on atenea.olimpo.test</h1>" > files/atenea.olimpo.test/messages/404.html
 ```
 
-![Páginas 404 creadas](img/02-paginas-404.png)
+![404 pages created](img/02-paginas-404.png)
 
-### 3.3. Virtual host de apolo
+### 2.4. Log files
 
-`files/mercurio.olimpo.test/apolo.olimpo.test.conf`
+The site has its own error and access logs:
+
+- `apolo.olimpo.test.error.log`
+- `apolo.olimpo.test.access.log`
+
+### 2.5. Directory listing
+
+If you do not ask for a specific file (only the directory), the server shows a list of the files in the document root. This is called the *directory index*.
+
+### 2.6. Virtual host file
+
+All of the above goes in `apolo.olimpo.test.conf`, which is copied to `/etc/apache2/sites-available`:
 
 ```apache
 <VirtualHost *:80>
@@ -121,18 +144,74 @@ echo "<h1>Resource not found on atenea.olimpo.test</h1>" > files/atenea.olimpo.t
 </VirtualHost>
 ```
 
-- `ServerName`: el nombre al que responde el sitio.
-- `DocumentRoot`: la carpeta con los ficheros del sitio.
-- `Options +Indexes`: si se pide la raíz y no hay `index.html`, se muestra el listado de ficheros.
-- `ErrorDocument 403`: mensaje personalizado para el error 403.
-- `ErrorDocument 404`: página personalizada para el error 404.
-- `ErrorLog` y `CustomLog`: logs propios del sitio.
+- `ServerName`: the name the site answers to.
+- `DocumentRoot`: the folder with the site files.
+- `Options +Indexes`: allows the file list when there is no `index.html`.
+- `ErrorDocument 403` and `404`: the custom error messages.
+- `ErrorLog` and `CustomLog`: the site's own logs.
 
-![Virtual host de apolo](img/03-apolo-conf.png)
+![apolo virtual host](img/03-apolo-conf.png)
 
-### 3.4. Virtual host de atenea
+### 2.7. Checking the site
 
-`files/mercurio.olimpo.test/atenea.olimpo.test.conf`
+| URL | Result | Why |
+|---|---|---|
+| `http://apolo.olimpo.test` | List of the site files | Directory listing is allowed and there is no `index.html` |
+| `http://apolo.olimpo.test/apolo.html` | Content of `apolo.html` | I asked for a specific file and I have permission |
+| `http://apolo.olimpo.test/index.html` | *Resource not found on apolo.olimpo.test* | `index.html` does not exist |
+| `http://apolo.olimpo.test/messages/404.html` | *Resource not found on apolo.olimpo.test* | It is the custom 404 page itself |
+
+![apolo file list](img/10-apolo-listado.png)
+
+![apolo 404](img/11-apolo-404.png)
+
+---
+
+## 3. atenea.olimpo.test
+
+### 3.1. DNS alias
+
+Same as apolo, `atenea.olimpo.test` is an alias of `mercurio.olimpo.test`:
+
+```
+atenea    IN    CNAME   mercurio
+```
+
+```bash
+vagrant ssh dns -c "dig atenea.olimpo.test"
+```
+
+### 3.2. Site files
+
+The document root is `/var/www/atenea.olimpo.test`:
+
+```
+atenea.olimpo.test
+├── messages
+│   └── 404.html
+├── atenea1.txt
+├── atenea2.txt
+└── atenea.html
+```
+
+### 3.3. Custom error pages
+
+**403 error:** the message is *You do not have permission to access atenea.olimpo.test*.
+
+**404 error:** the page `messages/404.html`, with the message *Resource not found on atenea.olimpo.test*.
+
+### 3.4. Log files
+
+- `atenea.olimpo.test.error.log`
+- `atenea.olimpo.test.access.log`
+
+### 3.5. No directory listing
+
+This is the big difference with apolo. If you do not ask for a specific file, atenea does **not** show the file list. It shows the custom 403 error instead.
+
+### 3.6. Virtual host file
+
+`atenea.olimpo.test.conf`, also in `/etc/apache2/sites-available`:
 
 ```apache
 <VirtualHost *:80>
@@ -151,13 +230,28 @@ echo "<h1>Resource not found on atenea.olimpo.test</h1>" > files/atenea.olimpo.t
 </VirtualHost>
 ```
 
-Es igual que el de apolo, pero con `Options -Indexes`. Así el listado de ficheros está prohibido, y al pedir la raíz (o `/messages`) Apache devuelve el error 403 personalizado.
+It is the same as apolo, but with `Options -Indexes`, so the file list is not allowed.
 
-![Ficheros de configuración de mercurio](img/04-ficheros-conf.png)
+![Config files in mercurio](img/04-ficheros-conf.png)
 
-### 3.5. Script de provisión de Apache
+### 3.7. Checking the site
 
-`apache2-provision.sh` venía con los comentarios y huecos `# tu código aquí`. Lo he completado siguiendo el mismo estilo que `dns-provision.sh`:
+| URL | Result | Why |
+|---|---|---|
+| `http://atenea.olimpo.test/atenea.html` | Content of `atenea.html` | I asked for a specific file |
+| `http://atenea.olimpo.test` | *You do not have permission to access atenea.olimpo.test* | Directory listing is not allowed and there is no `index.html` |
+| `http://atenea.olimpo.test/index.html` | *Resource not found on atenea.olimpo.test* | `index.html` does not exist |
+| `http://atenea.olimpo.test/messages` | *You do not have permission to access atenea.olimpo.test* | Directory listing is not allowed and there is no `index.html` |
+
+![atenea 403](img/12-atenea-403.png)
+
+---
+
+## 4. Enabling the sites with Vagrant
+
+### 4.1. Provisioning script
+
+The script `apache2-provision.sh` copies the config files, enables the virtual hosts and restarts Apache. I wrote it in the same style as `dns-provision.sh`:
 
 ```bash
 #
@@ -187,158 +281,99 @@ systemctl restart apache2
 systemctl status apache2
 ```
 
-![Script de provisión de Apache](img/05-apache2-provision.png)
+![Apache provisioning script](img/05-apache2-provision.png)
 
-### 3.6. `apache2.conf`
-
-El `apache2.conf` es el original de Debian, sin cambios. Lo saqué de la propia máquina `web` después del primer `vagrant up`:
+`apache2.conf` is the original Debian file, with no changes. I took it from the `web` machine after the first `vagrant up`:
 
 ```bash
 vagrant ssh web -c "cp /etc/apache2/apache2.conf /vagrant/files/mercurio.olimpo.test/"
 vagrant provision web
 ```
 
-La primera vez, el `cp` de `apache2.conf` da error porque el fichero todavía no existe. Después de copiarlo y hacer `vagrant provision web` ya funciona bien. Como ahora está en el repositorio, al levantar el proyecto desde cero ya no pasa.
-
----
-
-## 4. Puesta en marcha
-
-Desde la carpeta del proyecto:
+### 4.2. Starting everything
 
 ```bash
 vagrant up
 ```
 
-Crea las dos máquinas, instala BIND y Apache y ejecuta los scripts de provisión.
+It creates both machines, installs BIND and Apache and runs the provisioning scripts.
 
-![vagrant up terminado](img/06-vagrant-up.png)
+![vagrant up finished](img/06-vagrant-up.png)
 
-Después de `vagrant provision web`, Apache queda funcionando:
+Apache starts with no errors:
 
-![Apache activo](img/07-apache-running.png)
+![Apache running](img/07-apache-running.png)
 
----
+### 4.3. Resolving the names from my computer
 
-## 5. Comprobaciones
-
-### 5.1. DNS
-
-```bash
-vagrant ssh dns -c "dig apolo.olimpo.test"
-vagrant ssh dns -c "dig atenea.olimpo.test"
-```
-
-Resultado de apolo (atenea sale igual):
-
-```
-;; ANSWER SECTION:
-apolo.olimpo.test.     86400  IN  CNAME  mercurio.olimpo.test.
-mercurio.olimpo.test.  86400  IN  A      192.168.57.11
-```
-
-![dig apolo.olimpo.test](img/08-dig-apolo.png)
-
-### 5.2. Resolver los nombres desde mi ordenador
-
-Mi ordenador no usa el DNS de las máquinas virtuales, así que añado los nombres a su fichero `hosts`:
+My own computer does not use the DNS server of the virtual machines, so to open the sites in the browser I added the names to its `hosts` file:
 
 ```
 192.168.57.11   apolo.olimpo.test atenea.olimpo.test
 ```
 
 - **Linux:** `/etc/hosts`
+- **Windows:** `C:\Windows\System32\drivers\etc\hosts` (open the editor as administrator)
 
-  ```bash
-  echo "192.168.57.11   apolo.olimpo.test atenea.olimpo.test" | sudo tee -a /etc/hosts
-  ```
+![dig atenea and /etc/hosts](img/09-dig-atenea-hosts.png)
 
-- **Windows:** `C:\Windows\System32\drivers\etc\hosts` (abrir el editor como administrador).
+---
 
-![dig atenea y /etc/hosts](img/09-dig-atenea-hosts.png)
-
-### 5.3. Navegador
-
-| Dirección | Resultado |
-|---|---|
-| `http://apolo.olimpo.test` | Listado de ficheros (apolo.html, apolo1.txt, apolo2.txt, messages/) |
-| `http://apolo.olimpo.test/apolo.html` | Apolo site |
-| `http://apolo.olimpo.test/index.html` | Resource not found on apolo.olimpo.test |
-| `http://apolo.olimpo.test/messages/404.html` | Resource not found on apolo.olimpo.test |
-| `http://atenea.olimpo.test/atenea.html` | Atenea site |
-| `http://atenea.olimpo.test` | You do not have permission to access atenea.olimpo.test |
-| `http://atenea.olimpo.test/index.html` | Resource not found on atenea.olimpo.test |
-| `http://atenea.olimpo.test/messages` | You do not have permission to access atenea.olimpo.test |
-
-Las 8 salen como pide el PDF.
-
-Listado de ficheros de apolo:
-
-![Listado de apolo](img/10-apolo-listado.png)
-
-Error 404 personalizado de apolo:
-
-![404 de apolo](img/11-apolo-404.png)
-
-Error 403 personalizado de atenea:
-
-![403 de atenea](img/12-atenea-403.png)
-
-### 5.4. HURL
+## 5. Testing with HURL
 
 ```bash
 hurl --test --continue-on-error weblab-1-en.hurl
 ```
 
-Se ejecutan 8 peticiones: pasan 6 y fallan 2.
+It runs 8 requests: 6 pass and 2 fail.
 
-| Test | Resultado | Motivo |
+| Test | Result | Reason |
 |---|---|---|
-| `atenea.olimpo.test/soyuz.html` | Falla (404) | El fichero `soyuz.html` no aparece en el PDF ni en el `.tgz` |
-| `atenea.olimpo.test` (403) | Falla | El `.hurl` busca el mensaje de **apolo**, pero el PDF pide el de **atenea**, que es el que devuelve el servidor |
-| Los otros 6 | Pasan | |
+| `atenea.olimpo.test/soyuz.html` | Fails (404) | The file `soyuz.html` is not part of this lab |
+| `atenea.olimpo.test` (403) | Fails | The test looks for the **apolo** message, but atenea must show its own message, which is what the server returns |
+| The other 6 | Pass | |
 
-He seguido lo que dice el PDF.
+These two tests do not match the lab setup, so it is normal that they fail.
 
-![Resultado de HURL](img/13-hurl.png)
+![HURL result](img/13-hurl.png)
 
 ---
 
-## 6. Cómo lo he ido haciendo (Git)
+## 6. How I did it (Git)
 
-He partido del proyecto original de la práctica y he hecho un commit por cada paso.
+I started from the original lab project and made one commit for each step.
 
-Proyecto inicial (los ficheros tal cual vienen en el `.tgz`):
+Initial project:
 
-![Proyecto inicial](img/00-proyecto-inicial.png)
+![Initial project](img/00-proyecto-inicial.png)
 
-Alias del DNS:
+DNS aliases:
 
-![Diff del DNS](img/01b-diff-dns.png)
+![DNS diff](img/01b-diff-dns.png)
 
-Páginas 404:
+404 pages:
 
-![Páginas 404](img/02b-status-404.png)
+![404 pages](img/02b-status-404.png)
 
 Virtual hosts:
 
 ![Virtual hosts](img/03b-status-vhosts.png)
 
-Script de provisión de Apache (en rojo lo que venía en la plantilla, en verde lo que he añadido):
+Provisioning script (in red what was in the template, in green what I added):
 
-![Diff del script de provisión](img/04b-diff-provision.png)
+![Provisioning script diff](img/04b-diff-provision.png)
 
 ---
 
-## 7. Entrega
+## 7. Key files
 
-Ficheros que pide el PDF (en la carpeta `entrega/`):
+The `entrega/` folder has a copy of the most important files of the lab, all together so they are easy to find. The DNS zone files use the usual BIND names (`db.<zone>`):
 
-| Fichero entregado | Fichero en el proyecto |
-|---|---|
-| `named.conf.local` | `files/ns1.olimpo.test/named.conf.local` |
-| `db.olimpo.test` | `files/ns1.olimpo.test/olimpo.test.dns` |
-| `db.192.168.57` | `files/ns1.olimpo.test/192.168.57.dns` |
-| `apolo.olimpo.test.conf` | `files/mercurio.olimpo.test/apolo.olimpo.test.conf` |
-| `atenea.olimpo.test.conf` | `files/mercurio.olimpo.test/atenea.olimpo.test.conf` |
-| `Vagrantfile` | `Vagrantfile` |
+| File in `entrega/` | What it is | Original file in the project |
+|---|---|---|
+| `named.conf.local` | Declares the DNS zones | `files/ns1.olimpo.test/named.conf.local` |
+| `db.olimpo.test` | Forward zone, with the apolo and atenea aliases | `files/ns1.olimpo.test/olimpo.test.dns` |
+| `db.192.168.57` | Reverse zone | `files/ns1.olimpo.test/192.168.57.dns` |
+| `apolo.olimpo.test.conf` | apolo virtual host | `files/mercurio.olimpo.test/apolo.olimpo.test.conf` |
+| `atenea.olimpo.test.conf` | atenea virtual host | `files/mercurio.olimpo.test/atenea.olimpo.test.conf` |
+| `Vagrantfile` | Creates the two machines | `Vagrantfile` |
