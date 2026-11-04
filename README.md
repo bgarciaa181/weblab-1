@@ -78,6 +78,17 @@ mercurio.olimpo.test.  86400  IN  A      192.168.57.11
 
 ![dig apolo.olimpo.test](img/08-dig-apolo.png)
 
+I also checked it from the `web` machine. It does not have `dig` installed, so first I installed the `bind9-dnsutils` package (the same one the `dns` machine uses):
+
+```bash
+vagrant ssh web -c "sudo apt-get install -y bind9-dnsutils"
+vagrant ssh web -c "dig apolo.olimpo.test"
+```
+
+The answer is the same, and the line `SERVER: 192.168.57.10` shows that `web` is asking `ns1`:
+
+![dig apolo from web](img/14-dig-web-apolo.png)
+
 ### 2.2. Site files
 
 The document root of the site is `/var/www/apolo.olimpo.test`, with these files:
@@ -118,6 +129,14 @@ The site has its own error and access logs:
 
 - `apolo.olimpo.test.error.log`
 - `apolo.olimpo.test.access.log`
+
+They are in `/var/log/apache2` on the `web` machine (you need `sudo` to read that folder):
+
+```bash
+vagrant ssh web -c "sudo ls -l /var/log/apache2"
+```
+
+![Apache log files](img/16-logs.png)
 
 ### 2.5. Directory listing
 
@@ -163,6 +182,8 @@ All of the above goes in `apolo.olimpo.test.conf`, which is copied to `/etc/apac
 
 ![apolo file list](img/10-apolo-listado.png)
 
+![apolo.html](img/17-apolo-html.png)
+
 ![apolo 404](img/11-apolo-404.png)
 
 ---
@@ -179,7 +200,10 @@ atenea    IN    CNAME   mercurio
 
 ```bash
 vagrant ssh dns -c "dig atenea.olimpo.test"
+vagrant ssh web -c "dig atenea.olimpo.test"
 ```
+
+![dig atenea from web](img/15-dig-web-atenea.png)
 
 ### 3.2. Site files
 
@@ -204,6 +228,8 @@ atenea.olimpo.test
 
 - `atenea.olimpo.test.error.log`
 - `atenea.olimpo.test.access.log`
+
+You can see them in the same log screenshot as apolo. The 403 errors of atenea are written in `atenea.olimpo.test.error.log`.
 
 ### 3.5. No directory listing
 
@@ -243,7 +269,13 @@ It is the same as apolo, but with `Options -Indexes`, so the file list is not al
 | `http://atenea.olimpo.test/index.html` | *Resource not found on atenea.olimpo.test* | `index.html` does not exist |
 | `http://atenea.olimpo.test/messages` | *You do not have permission to access atenea.olimpo.test* | Directory listing is not allowed and there is no `index.html` |
 
+![atenea.html](img/18-atenea-html.png)
+
 ![atenea 403](img/12-atenea-403.png)
+
+![atenea 404](img/19-atenea-404.png)
+
+![atenea messages 403](img/20-atenea-messages-403.png)
 
 ---
 
@@ -303,6 +335,12 @@ It creates both machines, installs BIND and Apache and runs the provisioning scr
 Apache starts with no errors:
 
 ![Apache running](img/07-apache-running.png)
+
+**Note:** after turning the machines off and on again (`vagrant halt` and `vagrant up`), Debian rewrites `/etc/resolv.conf` and the `web` machine stops using `ns1`. You can see it because `dig` shows `SERVER: 10.0.2.3` instead of `192.168.57.10`. To fix it, run again the step of the `Vagrantfile` that copies that file:
+
+```bash
+vagrant provision web --provision-with mercurio-resolv
+```
 
 ### 4.3. Resolving the names from my computer
 
